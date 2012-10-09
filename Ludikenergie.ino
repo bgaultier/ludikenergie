@@ -1,7 +1,7 @@
 /*
-  Ludikenergie tachometer v0.3
+  Ludikenergie tachometer v0.4
  
- A web server that shows the number of spins since Arduino started
+ A web client sending time period of wheel revolution of a stationary bike 
  
  Circuit:
  * Ethernet shield attached to pins 10, 11, 12, 13
@@ -10,7 +10,7 @@
  * Optional : LED attached from pin 9 to ground
  
  created 19 Jul 2012
- updated 22 Aug 2012
+ updated 09 Oct 2012
  by Baptiste Gaultier (Telecom Bretagne)
  
  This code is in the public domain.
@@ -24,67 +24,83 @@
 // Enter a MAC address and IP address for your controller below.
 // Newer Arduino include a sticker with the device's MAC address
 byte mac[] = { 0x90, 0xA2, 0xDA, 0x00, 0xE5, 0x25 };
+
 // each bike needs a unique IP address and are normally assigned DHCP
 // if DHCP fails, this IP address will be used :
 IPAddress ip(192, 168, 1, 1);
 
+// Server IP address (you must assign a static IP address for the server)
+IPAddress server(192, 108, 119, 4);
 
-// Initialize the Ethernet server library
-// with the IP address and port you want to use 
-// (port 80 is default for HTTP):
-EthernetServer server(80);
+// initialize the library instance:
+EthernetClient client;
 
-// Store the number of revolutions of the wheel since Arduino started
-long spins = 0;
+// bike identifier
+int bikeID = 0;
 
-// Store the last time we increment spins
-long previousMillis = 0;       
-
-// the follow variables is a long because the time, measured in miliseconds,
-// will quickly become a bigger number than can be stored in an int.
-long interval = 200;           // interval at which to increment
+// used to measure time and period
+unsigned long pulseTime,lastTime, period;
 
 // Variables will change:
 int currentState; // current state of the wheel sensor
 int lastState = 0;  // previous state of the wheel sensor
-int randNumber; // random number
+int readings = 0; // number of pulses read since the last packet was sent
+boolean lastConnected = false; // state of the connection last time through the main loop
 
 
 void setup() {
- // Open serial communications and wait for port to open:
- Serial.begin(9600);
- 
- //configure pin2 as an input and enable the internal pull-up resistor
- pinMode(2, INPUT_PULLUP);
- pinMode(9, OUTPUT); 
+  // Open serial communications and wait for port to open:
+  Serial.begin(9600);
+  //configure pin2 as an input and enable the internal pull-up resistor
+  pinMode(2, INPUT_PULLUP);
   
- // welcome message
- Serial.println("Ludikenergie tachometer v0.3 starting...");
- 
- // attempt a DHCP connection:
- Serial.println("Attempting to get an IP address using DHCP:");
- if (!Ethernet.begin(mac)) {
-    // if DHCP fails, start with a hard-coded address:
-    Serial.println("failed to get an IP address using DHCP, trying manually");
-    // please change the value of ip for each bike, subnet defaults to 255.255.255.0 
+  // speaker on digital pin 8
+  pinMode(8, OUTPUT);
+  // built-in LED
+  pinMode(9, OUTPUT);
+  
+  // welcome message
+  Serial.println("Ludikenergie tachometer v0.4 starting...");
+  
+  // give the ethernet module time to boot up
+  delay(1000);
+  // start the Ethernet connection
+  if (Ethernet.begin(mac) == 0) {
+    Serial.println("Failed to configure Ethernet using DHCP");
+    // DHCP failed, so use a fixed IP address
     Ethernet.begin(mac, ip);
   }
-  
-  // start listening for clients
-  server.begin();
-  Serial.print("Server is at ");
+  Serial.print("My IP:");
   Serial.println(Ethernet.localIP());
   
-  // if analog input pin 5 is unconnected, random analog
-  // noise will cause the call to randomSeed() to generate
-  // different seed numbers each time the sketch runs.
-  // randomSeed() will then shuffle the random function.
-  randomSeed(analogRead(5));
+  ip = Ethernet.localIP();
+  bikeID = ip[3];
+  Serial.print("I'm bike-");
+  Serial.println(bikeID);
 }
 
 
 void loop() {
-  //read the wheel sensor value into a variable
+  // if there's incoming data from the net connection.
+  // send it out the serial port.  This is for debugging
+  // purposes only:
+  /*if (client.available()) {
+    char c = client.read();
+    Serial.print(c);
+  }*/
+  
+  // if there's no net connection, but there was one last time
+  // through the loop, then stop the client:
+  if (!client.connected() && lastConnected) {
+    Serial.println();
+    Serial.println("Disconnecting.");
+    client.stop();
+  }
+  
+  // store current time
+  unsigned long currentMillis = millis();
+  
+  // read the wheel sensor value into a variable
   int currentState = digitalRead(2);
  
   // Keep in mind the pullup means the sensor's logic is
@@ -98,55 +114,57 @@ void loop() {
     }
     else {
       // Revolution of the wheel
-      spins ++;
-      digitalWrite(9, HIGH);
-      tone(8, 440, 20);
-      Serial.print("spins : ");
-      Serial.println(spins);
-      lastState = LOW;
-    }
-  }
-  
-  // listen for incoming clients
-  EthernetClient client = server.available();
-  if (client) {
-    Serial.println("new client");
-    // an http request ends with a blank line
-    boolean currentLineIsBlank = true;
-    while (client.connected()) {
-      if (client.available()) {
-        char c = client.read();
-        Serial.write(c);
-        // if you've gotten to the end of the line (received a newline
-        // character) and the line is blank, the http request has ended,
-        // so you can send a reply
-        if (c == '\n' && currentLineIsBlank) {
-          // send a standard http response header
-          client.println("HTTP/1.1 200 OK");
-          // MIME type "application/json" http://www.ietf.org/rfc/rfc4627.txt
-          client.println("Content-Type: application/json");
-          client.println("Connnection: close");
-          client.println();
-          client.print("{\"spins\":\"");
-          client.print(spins);
-          client.print("\"}");
-          break;
-        }
-        if (c == '\n') {
-          // you're starting a new line
-          currentLineIsBlank = true;
-        } 
-        else if (c != '\r') {
-          // you've gotten a character on the current line
-          currentLineIsBlank = false;
+      lastTime = pulseTime;
+      pulseTime = millis();
+      
+      period = pulseTime - lastTime;
+      
+      if(period > 100) {
+        // avoid false positive if period is less than 100ms
+        digitalWrite(9, HIGH); // flash LED
+        tone(8, 440, 20); // beep
+        Serial.print("period : ");
+        Serial.println(period);
+        lastState = LOW;
+        readings++;
+        if(readings >= 2) {
+          readings = 0;
+          sendValue(period);
         }
       }
     }
-    // give the web browser time to receive the data
-    delay(1);
-    // close the connection:
+  }
+  
+  // store the state of the connection for next time through
+  // the loop:
+  lastConnected = client.connected();
+}
+
+// this method makes a HTTP connection to the server:
+void sendValue(long period) {
+  // if there's a successful connection:
+  if (client.connect(server, 80)) {
+    Serial.println("Connecting...");
+    Serial.print("GET /api/post?json={bike-");
+    Serial.print(bikeID);
+    Serial.print(":");
+    Serial.print(period);
+    Serial.println("} HTTP/1.1");
+    // send the HTTP PUT request:
+    client.print("GET /api/post?json={bike-");
+    client.print(bikeID);
+    client.print(":");
+    client.print(period);
+    client.println("} HTTP/1.1");
+    client.println("User-Agent: Arduino-ethernet");
+    client.println("Connection: close");
+    client.println();
+  } 
+  else {
+    // if you couldn't make a connection:
+    Serial.println("Connection failed");
+    Serial.println("Disconnecting.");
     client.stop();
-    Serial.println("client disconnected");
   }
 }
 
