@@ -27,10 +27,10 @@ byte mac[] = { 0x90, 0xA2, 0xDA, 0x00, 0xE5, 0x25 };
 
 // each bike needs a unique IP address and are normally assigned DHCP
 // if DHCP fails, this IP address will be used :
-IPAddress ip(192, 168, 1, 1);
+IPAddress ip(192, 168, 10, 205);
 
 // Server IP address (you must assign a static IP address for the server)
-IPAddress server(192, 108, 119, 4);
+IPAddress server(192, 168, 10, 80);
 
 // initialize the library instance:
 EthernetClient client;
@@ -156,6 +156,7 @@ void sendValue(long period) {
     client.print(":");
     client.print(period);
     client.println("} HTTP/1.1");
+    client.println("Host: ");
     client.println("User-Agent: Arduino-ethernet");
     client.println("Connection: close");
     client.println();
