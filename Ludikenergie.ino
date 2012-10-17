@@ -30,7 +30,7 @@ byte mac[] = { 0x90, 0xA2, 0xDA, 0x00, 0xE5, 0x25 };
 IPAddress ip(192, 168, 10, 205);
 
 // Server IP address (you must assign a static IP address for the server)
-IPAddress server(192, 108, 119, 4);
+IPAddress server(192, 168, 10, 80);
 
 // initialize the library instance:
 EthernetClient client;
@@ -46,9 +46,7 @@ int currentState; // current state of the wheel sensor
 int lastState = 0;  // previous state of the wheel sensor
 int readings = 0; // number of pulses read since the last packet was sent
 boolean lastConnected = false; // state of the connection last time through the main loop
-
-boolean receiving = false;
-
+boolean receiving = false; // are we receiving a packet ?
 
 void setup() {
   // Open serial communications and wait for port to open:
@@ -57,7 +55,7 @@ void setup() {
   pinMode(2, INPUT_PULLUP);
   
   // speaker on digital pin 8
-  pinMode(8, OUTPUT);
+  //pinMode(8, OUTPUT);
   // built-in LED
   pinMode(9, OUTPUT);
   
@@ -113,7 +111,6 @@ void loop() {
     // close to the magnet, and off when it's not:
     if(currentState != lastState) {
       if (currentState == HIGH) {
-        // 
         digitalWrite(9, LOW); // turn the LED off
         lastState = HIGH;
       }
@@ -141,7 +138,6 @@ void loop() {
         }
       }
     }
-  
   }
   
   // store the state of the connection for next time through
@@ -160,12 +156,12 @@ void sendValue(long period) {
     Serial.print(period);
     Serial.println("} HTTP/1.1");
     // send the HTTP PUT request:
-    client.print("GET /api/post?apikey=1bbc659918f7bfb937cbfb26f7b07911&json={bike-");
+    client.print("GET /api/post?json={bike-");
     client.print(bikeID);
     client.print(":");
     client.print(period);
     client.println("} HTTP/1.1");
-    client.println("Host: smartb.labo4g.enstb.fr");
+    client.println("Host: ");
     client.println("User-Agent: Arduino-ethernet");
     client.println("Connection: close");
     client.println();
